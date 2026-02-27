@@ -1,0 +1,923 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🐕 Flu's Abenteuer</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #111128;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  min-height: 100vh;
+  font-family: 'Segoe UI', Arial, sans-serif;
+  color: white; user-select: none;
+}
+#gc { position: relative; }
+canvas {
+  display: block; border-radius: 14px;
+  border: 3px solid #5555bb;
+  box-shadow: 0 0 50px rgba(80,80,220,0.4);
+}
+#hud {
+  position: absolute; top: 0; left: 0; right: 0;
+  padding: 10px 20px;
+  display: flex; justify-content: space-between;
+  pointer-events: none;
+}
+.hbox {
+  background: rgba(0,0,0,0.6);
+  border-radius: 8px; padding: 7px 18px;
+  font-size: 22px; font-weight: bold;
+}
+#mulBanner {
+  position: absolute; top: 58px; left: 50%;
+  transform: translateX(-50%);
+  font-size: 20px; font-weight: bold;
+  border-radius: 10px; padding: 5px 20px;
+  pointer-events: none; display: none;
+  white-space: nowrap;
+  animation: rbAnim 0.6s linear infinite;
+  border: 2px solid;
+}
+@keyframes rbAnim {
+  0%   { border-color:#ff4444; color:#ff4444; background:rgba(255,60,60,.15); }
+  16%  { border-color:#ff9900; color:#ff9900; background:rgba(255,150,0,.15); }
+  33%  { border-color:#ffee00; color:#ffee00; background:rgba(255,238,0,.15); }
+  50%  { border-color:#44ff44; color:#44ff44; background:rgba(50,255,50,.15); }
+  66%  { border-color:#4488ff; color:#4488ff; background:rgba(60,140,255,.15); }
+  83%  { border-color:#cc44ff; color:#cc44ff; background:rgba(200,60,255,.15); }
+  100% { border-color:#ff4444; color:#ff4444; background:rgba(255,60,60,.15); }
+}
+#overlay {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,20,0.85);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 14px; border-radius: 12px;
+}
+h1 { font-size: 46px; color: #ffd700; text-shadow: 2px 2px 12px #000; }
+h2 { font-size: 26px; color: #ffeeaa; }
+.info { text-align: center; font-size: 15px; line-height: 2.2; color: #ccc; }
+.lb-title { font-size: 20px; color: #ffd700; margin-bottom: 6px; text-align: center; }
+.lb-entry {
+  font-size: 16px; padding: 5px 22px;
+  background: rgba(255,255,255,0.08);
+  margin: 3px 0; border-radius: 6px; min-width: 250px;
+}
+.lb-entry:nth-child(1) { color: gold; }
+.lb-entry:nth-child(2) { color: silver; }
+.lb-entry:nth-child(3) { color: #cd7f32; }
+button {
+  padding: 13px 36px; font-size: 20px;
+  background: #4040cc; color: white;
+  border: 2px solid #8888ff; border-radius: 10px;
+  cursor: pointer; transition: 0.15s;
+}
+button:hover { background: #5555ff; transform: scale(1.06); }
+input[type=text] {
+  padding: 10px 18px; font-size: 18px;
+  background: rgba(255,255,255,0.1);
+  border: 2px solid #8888ff; border-radius: 8px;
+  color: white; text-align: center; width: 250px;
+}
+#hint { font-size: 13px; color: #666; margin-top: 4px; }
+</style>
+</head>
+<body>
+<div id="gc">
+  <canvas id="c" width="820" height="460"></canvas>
+  <div id="hud">
+    <div class="hbox" id="scoreEl">Punkte: 0</div>
+    <div class="hbox" id="timerEl">Zeit: 80</div>
+  </div>
+  <div id="mulBanner">★ 2× PUNKTE! ★</div>
+  <div id="overlay">
+    <h1>🐕 Flu's Abenteuer</h1>
+    <div class="info">
+      <b>LEERTASTE</b> / <b>↑</b> / <b>Klick</b> = Springen &nbsp;(Doppelsprung möglich!)<br>
+      🟡 Gelbe Münze: <b>+5 Punkte</b> &nbsp;|&nbsp;
+      🔴 Rote Münze: <b>-10 Punkte</b> &nbsp;|&nbsp;
+      🌈 Bunte Münze: <b>2× für 10 Sek!</b>
+    </div>
+    <div id="lbArea"></div>
+    <button id="startBtn">🎮 Spiel starten!</button>
+    <div id="hint">80 Sekunden – sammle so viele Punkte wie möglich!</div>
+  </div>
+</div>
+
+<script>'use strict';
+
+// ════════════════════════════════════════════════════════════
+//  CANVAS / CONSTANTS
+// ════════════════════════════════════════════════════════════
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+const W = 820, H = 460;
+
+const GY       = 415;   // ground surface y
+const DOG_FY   = GY;    // dog feet y (ground)
+const DOG_CY   = GY - 30; // dog body-center y at ground
+const SCROLL   = 3.8;
+const GRAV     = 0.53;
+const JUMPV    = -13.8;
+const JUMPV2   = -11.5; // double-jump velocity
+const GAMEDUR  = 80;
+
+// Coin spawn heights (y = coin center)
+const HGTS = [GY - 22, GY - 75, GY - 140, GY - 210];
+
+// ════════════════════════════════════════════════════════════
+//  AUDIO  (Web Audio API)
+// ════════════════════════════════════════════════════════════
+let AC = null;
+let musicOn = false, musicStop = false, musicTmr = null;
+let sirenOsc = null, sirenGain = null, sirenTmr = null;
+
+function initAC() {
+  if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)();
+}
+
+function beep(freq, type, dur, vol, freqEnd, delay = 0) {
+  if (!AC) return;
+  const o = AC.createOscillator(), g = AC.createGain();
+  o.connect(g); g.connect(AC.destination);
+  o.type = type;
+  const t = AC.currentTime + delay;
+  o.frequency.setValueAtTime(freq, t);
+  if (freqEnd) o.frequency.exponentialRampToValueAtTime(freqEnd, t + dur * 0.82);
+  g.gain.setValueAtTime(vol, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.start(t); o.stop(t + dur + 0.02);
+}
+
+function sfxPling() {
+  // Bright ascending bell
+  beep(880,  'sine', 0.08, 0.38, 1760, 0);
+  beep(1760, 'sine', 0.38, 0.20, 3520, 0);
+  beep(2640, 'sine', 0.25, 0.10, 5280, 0.04);
+}
+
+function sfxWah() {
+  // Deep descending "wah"
+  beep(280, 'sawtooth', 0.55, 0.45, 70,  0);
+  beep(160, 'sine',     0.50, 0.22, 55,  0.04);
+  beep(80,  'triangle', 0.35, 0.15, 40,  0.10);
+}
+
+function startSiren() {
+  if (!AC || sirenOsc) return;
+  sirenOsc  = AC.createOscillator();
+  sirenGain = AC.createGain();
+  sirenOsc.connect(sirenGain);
+  sirenGain.connect(AC.destination);
+  sirenOsc.type = 'sine';
+  sirenGain.gain.setValueAtTime(0.16, AC.currentTime);
+  sirenOsc.frequency.setValueAtTime(620, AC.currentTime);
+  sirenOsc.start();
+  let up = true;
+  sirenTmr = setInterval(() => {
+    if (!sirenOsc) return;
+    sirenOsc.frequency.linearRampToValueAtTime(
+      up ? 1150 : 620, AC.currentTime + 0.32);
+    up = !up;
+  }, 330);
+}
+
+function stopSiren() {
+  if (sirenTmr) { clearInterval(sirenTmr); sirenTmr = null; }
+  if (sirenOsc) { try { sirenOsc.stop(); } catch(e) {} sirenOsc = null; sirenGain = null; }
+}
+
+// ── Music ──────────────────────────────────────────────────
+const N = {
+  C4:261.6, D4:293.7, E4:329.6, F4:349.2, G4:392.0, A4:440.0, B4:493.9,
+  C5:523.3, D5:587.3, E5:659.3, F5:698.5, G5:784.0, A5:880.0
+};
+
+// Happy 8-bit melody (note, beats)
+const MEL = [
+  ['C5',.5],['E5',.5],['G5',.5],['E5',.5],
+  ['D5',.5],['F5',.5],['A5',.5],['F5',.5],
+  ['C5',.5],['E5',.5],['G5',.5],['E5',.5],
+  ['C5', 1],['G4',.5],['A4',.5],
+  ['G4',.5],['A4',.5],['G4',.5],['E4',.5],
+  ['F4',.5],['G4',.5],['A4',.5],['G4',.5],
+  ['E4',.5],['G4',.5],['E4',.5],['C4',.5],
+  ['G4',1.5],['E4',.5],
+  ['C5',.5],['G5',.5],['E5',.5],['C5',.5],
+  ['B4',.5],['G4',.5],['A4',.5],['B4',.5],
+  ['C5', 2],
+];
+
+const BASS = [
+  ['C4',1],['G4',1], ['C4',1],['G4',1],
+  ['F4',1],['C4',1], ['G4',1],['C4',1],
+];
+
+function scheduleMusic() {
+  if (musicStop || !AC) return;
+  const BPM = 172, bd = 60 / BPM;
+  let t = AC.currentTime + 0.05;
+
+  for (const [note, beats] of MEL) {
+    const dur = beats * bd, freq = N[note];
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.connect(g); g.connect(AC.destination);
+    o.type = 'square';
+    o.frequency.setValueAtTime(freq, t);
+    g.gain.setValueAtTime(0.065, t);
+    g.gain.setValueAtTime(0.065, t + dur * 0.62);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur * 0.88);
+    o.start(t); o.stop(t + dur); t += dur;
+  }
+
+  const melLen = MEL.reduce((s,[,b])=>s+b,0) * bd;
+  let tb = AC.currentTime + 0.05;
+  while (tb < AC.currentTime + 0.05 + melLen) {
+    for (const [note, beats] of BASS) {
+      const dur = beats * bd;
+      const o = AC.createOscillator(), g = AC.createGain();
+      o.connect(g); g.connect(AC.destination);
+      o.type = 'triangle';
+      o.frequency.setValueAtTime(N[note], tb);
+      g.gain.setValueAtTime(0.035, tb);
+      g.gain.exponentialRampToValueAtTime(0.0001, tb + dur * 0.65);
+      o.start(tb); o.stop(tb + dur); tb += dur;
+      if (tb >= AC.currentTime + 0.05 + melLen) break;
+    }
+  }
+
+  musicTmr = setTimeout(() => { if (!musicStop) scheduleMusic(); }, melLen * 1000 - 100);
+}
+
+function startMusic() {
+  if (!AC || musicOn) return;
+  musicOn = true; musicStop = false;
+  scheduleMusic();
+}
+
+function stopMusic() {
+  musicOn = false; musicStop = true;
+  if (musicTmr) { clearTimeout(musicTmr); musicTmr = null; }
+}
+
+// ════════════════════════════════════════════════════════════
+//  GAME STATE
+// ════════════════════════════════════════════════════════════
+let state = 'menu'; // 'menu' | 'playing' | 'gameover'
+let score, timeLeft, mulActive, mulLeft, scrollOff, lastTS, animID;
+
+// ════════════════════════════════════════════════════════════
+//  DOG "FLU"
+// ════════════════════════════════════════════════════════════
+const dog = {
+  x: 165, y: DOG_FY, vy: 0,
+  grounded: true, jumps: 0,
+  legPh: 0, tailAng: 0.3, tailDir: 1,
+};
+
+function resetDog() {
+  dog.y = DOG_FY; dog.vy = 0;
+  dog.grounded = true; dog.jumps = 0; dog.legPh = 0;
+}
+
+function dogJump() {
+  if (dog.jumps < 2) {
+    dog.vy = dog.jumps === 0 ? JUMPV : JUMPV2;
+    dog.grounded = false; dog.jumps++;
+    // Puff particles on jump
+    for (let i = 0; i < 5; i++) {
+      const a = Math.random() * Math.PI + Math.PI;
+      parts.push({ x: dog.x, y: dog.y, vx: Math.cos(a)*2, vy: Math.sin(a)*1.5,
+                   col: '#ddd', life: 18 });
+    }
+  }
+}
+
+function updateDog() {
+  dog.vy += GRAV;
+  dog.y  += dog.vy;
+  if (dog.y >= DOG_FY) {
+    dog.y = DOG_FY; dog.vy = 0;
+    dog.grounded = true; dog.jumps = 0;
+  } else { dog.grounded = false; }
+  dog.legPh   += dog.grounded ? 0.27 : 0;
+  dog.tailAng += 0.13 * dog.tailDir;
+  if (Math.abs(dog.tailAng) > 0.55) dog.tailDir *= -1;
+}
+
+function drawDog() {
+  const x = dog.x;
+  const fy = dog.y;       // feet y
+  const cy = fy - 30;     // body center y
+  const bc = '#c8935a';   // body color
+  const dc = '#9a6030';   // dark color
+  const lc = '#e8b87a';   // light belly
+
+  ctx.save();
+
+  // Tail
+  ctx.save();
+  ctx.translate(x - 24, cy + 2);
+  ctx.rotate(dog.tailAng - 0.7);
+  ctx.fillStyle = dc;
+  ctx.beginPath(); ctx.ellipse(0, -12, 5.5, 14, 0, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#e0c09a';
+  ctx.beginPath(); ctx.ellipse(0, -12, 3, 10, 0, 0, Math.PI*2); ctx.fill();
+  ctx.restore();
+
+  // Legs
+  for (let i = 0; i < 4; i++) {
+    const side = i < 2 ? 1 : -1;
+    const pair = i % 2;
+    const swing = dog.grounded ? Math.sin(dog.legPh + i * 1.6) * 8 : 0;
+    const lx = x + side * (pair === 0 ? 8 : 16) + swing;
+    ctx.fillStyle = dc;
+    ctx.beginPath();
+    ctx.ellipse(lx, cy + 20, 5, 12, 0, 0, Math.PI*2);
+    ctx.fill();
+    // Paw
+    ctx.fillStyle = '#774422';
+    ctx.beginPath();
+    ctx.ellipse(lx, fy - 2, 6, 4, 0, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  // Body
+  ctx.fillStyle = bc;
+  ctx.beginPath(); ctx.ellipse(x, cy, 30, 18, 0, 0, Math.PI*2); ctx.fill();
+
+  // Belly
+  ctx.fillStyle = lc;
+  ctx.beginPath(); ctx.ellipse(x + 4, cy + 5, 18, 11, 0, 0, Math.PI*2); ctx.fill();
+
+  // Spots
+  ctx.fillStyle = 'rgba(120,60,10,0.25)';
+  ctx.beginPath(); ctx.ellipse(x - 10, cy - 5, 8, 6, 0.5, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(x + 12, cy + 8, 6, 4, -0.3, 0, Math.PI*2); ctx.fill();
+
+  // Head
+  ctx.fillStyle = bc;
+  ctx.beginPath(); ctx.arc(x + 30, cy - 11, 18, 0, Math.PI*2); ctx.fill();
+
+  // Ears (floppy)
+  ctx.fillStyle = dc;
+  ctx.beginPath(); ctx.ellipse(x + 22, cy - 26, 8, 15, -0.5, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(x + 32, cy - 28, 7, 13, 0.25, 0, Math.PI*2); ctx.fill();
+  // Ear inner
+  ctx.fillStyle = '#cc8858';
+  ctx.beginPath(); ctx.ellipse(x + 22, cy - 25, 5, 10, -0.5, 0, Math.PI*2); ctx.fill();
+
+  // Snout
+  ctx.fillStyle = lc;
+  ctx.beginPath(); ctx.ellipse(x + 44, cy - 8, 11, 7.5, 0.15, 0, Math.PI*2); ctx.fill();
+
+  // Nose
+  ctx.fillStyle = '#1a1a1a';
+  ctx.beginPath(); ctx.ellipse(x + 52, cy - 9, 4.5, 3.5, 0, 0, Math.PI*2); ctx.fill();
+  // Nose shine
+  ctx.fillStyle = 'rgba(255,255,255,0.4)';
+  ctx.beginPath(); ctx.ellipse(x + 51, cy - 11, 2, 1.5, 0.5, 0, Math.PI*2); ctx.fill();
+
+  // Eye
+  ctx.fillStyle = 'white';
+  ctx.beginPath(); ctx.arc(x + 35, cy - 15, 6, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#1a1a1a';
+  ctx.beginPath(); ctx.arc(x + 36, cy - 15, 4, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = 'white';
+  ctx.beginPath(); ctx.arc(x + 37.5, cy - 16.5, 1.5, 0, Math.PI*2); ctx.fill();
+
+  // Eyebrow
+  ctx.strokeStyle = dc; ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x + 30, cy - 22); ctx.lineTo(x + 40, cy - 23);
+  ctx.stroke();
+
+  // Smile
+  ctx.strokeStyle = dc; ctx.lineWidth = 1.8;
+  ctx.beginPath();
+  ctx.arc(x + 47, cy - 4, 5, 0.3, Math.PI - 0.3);
+  ctx.stroke();
+
+  // Name tag "FLU"
+  if (dog.grounded) {
+    ctx.fillStyle = 'rgba(0,0,0,0.65)';
+    roundRect(ctx, x + 8, cy - 56, 44, 18, 5);
+    ctx.fill();
+    ctx.fillStyle = '#ffd700';
+    ctx.font = 'bold 13px Arial';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('FLU', x + 30, cy - 47);
+  }
+
+  ctx.restore();
+}
+
+// ════════════════════════════════════════════════════════════
+//  BACKGROUND
+// ════════════════════════════════════════════════════════════
+const clouds = Array.from({length:9}, () => ({
+  x: Math.random() * 900, y: 40 + Math.random() * 100,
+  r: 55 + Math.random() * 75, sp: 0.38 + Math.random() * 0.45,
+}));
+
+const treeData = Array.from({length:14}, (_, i) => ({
+  x: i * 75 + Math.random() * 30,
+  h: 55 + Math.random() * 55,
+  dark: Math.random() > 0.5,
+}));
+
+function drawBG() {
+  // Sky gradient
+  const sky = ctx.createLinearGradient(0, 0, 0, GY);
+  sky.addColorStop(0, '#4a96cc');
+  sky.addColorStop(1, '#c0e8f5');
+  ctx.fillStyle = sky; ctx.fillRect(0, 0, W, GY);
+
+  // Sun + glow
+  const sunX = W - 75, sunY = 65;
+  const sunGlow = ctx.createRadialGradient(sunX, sunY, 20, sunX, sunY, 65);
+  sunGlow.addColorStop(0, 'rgba(255,240,100,0.4)');
+  sunGlow.addColorStop(1, 'rgba(255,240,100,0)');
+  ctx.fillStyle = sunGlow;
+  ctx.beginPath(); ctx.arc(sunX, sunY, 65, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#ffe840';
+  ctx.beginPath(); ctx.arc(sunX, sunY, 36, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#fff8a0';
+  ctx.beginPath(); ctx.arc(sunX, sunY, 28, 0, Math.PI*2); ctx.fill();
+
+  // Far mountains (slow parallax)
+  ctx.fillStyle = '#a8c8e0';
+  for (let i = 0; i < 8; i++) {
+    const mx = ((i * 220 - scrollOff * 0.14) % (W + 330) + W + 330) % (W + 330) - 110;
+    ctx.beginPath();
+    ctx.moveTo(mx, GY); ctx.lineTo(mx + 110, GY - 120); ctx.lineTo(mx + 220, GY);
+    ctx.fill();
+  }
+
+  // Mid-ground hills
+  ctx.fillStyle = '#88b84a';
+  for (let i = 0; i < 6; i++) {
+    const mx = ((i * 300 - scrollOff * 0.30) % (W + 450) + W + 450) % (W + 450) - 150;
+    ctx.beginPath();
+    ctx.arc(mx + 150, GY + 10, 170, 0, Math.PI, true);
+    ctx.fill();
+  }
+
+  // Trees
+  for (const tree of treeData) {
+    const tx = ((tree.x - scrollOff * 0.55) % (W + 90) + W + 90) % (W + 90) - 45;
+    const th = tree.h;
+    ctx.fillStyle = '#6b4226';
+    ctx.fillRect(tx + th/2 - 5, GY - 30, 10, 30);
+    ctx.fillStyle = tree.dark ? '#2e6e34' : '#3a8a40';
+    ctx.beginPath();
+    ctx.moveTo(tx, GY - 30); ctx.lineTo(tx + th/2, GY - 30 - th); ctx.lineTo(tx + th, GY - 30);
+    ctx.fill();
+    ctx.fillStyle = tree.dark ? '#38883e' : '#4aaa50';
+    ctx.beginPath();
+    ctx.moveTo(tx + 10, GY - 50); ctx.lineTo(tx + th/2, GY - 30 - th * 0.82);
+    ctx.lineTo(tx + th - 10, GY - 50); ctx.fill();
+  }
+
+  // Clouds
+  for (const c of clouds) {
+    const cx = ((c.x - scrollOff * 0.22) % (W + 200) + W + 200) % (W + 200) - 80;
+    ctx.fillStyle = 'rgba(255,255,255,0.90)';
+    ctx.beginPath(); ctx.ellipse(cx, c.y, c.r, c.r*0.52, 0, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(cx - c.r*0.38, c.y + c.r*0.12, c.r*0.58, c.r*0.38, 0, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(cx + c.r*0.38, c.y + c.r*0.14, c.r*0.48, c.r*0.34, 0, 0, Math.PI*2); ctx.fill();
+  }
+
+  // Ground strip
+  ctx.fillStyle = '#5a9040';
+  ctx.fillRect(0, GY, W, 9);
+  // Dirt
+  const dirt = ctx.createLinearGradient(0, GY + 9, 0, H);
+  dirt.addColorStop(0, '#8b6318'); dirt.addColorStop(1, '#6b4810');
+  ctx.fillStyle = dirt; ctx.fillRect(0, GY + 9, W, H - GY - 9);
+  // Grass tufts
+  ctx.strokeStyle = 'rgba(80,170,40,0.55)'; ctx.lineWidth = 2;
+  const gsp = 26;
+  for (let gx = -(scrollOff % gsp); gx < W; gx += gsp) {
+    ctx.beginPath();
+    ctx.moveTo(gx, GY); ctx.quadraticCurveTo(gx + 6, GY - 8, gx + 12, GY);
+    ctx.stroke();
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+//  COINS
+// ════════════════════════════════════════════════════════════
+let coins = [];
+let spawnTmr = 0;
+
+function resetCoins() { coins = []; spawnTmr = 0; }
+
+function mkCoin(x, y, type) {
+  return { x, y, type, rot: Math.random() * Math.PI*2, hue: 0, alive: true, fade: 0 };
+}
+
+function spawnPattern() {
+  const sx = W + 70;
+  const r  = Math.random();
+
+  if (r < 0.30) {
+    // Single coin
+    const t = Math.random() < 0.62 ? 'y' : (Math.random() < 0.72 ? 'r' : 'c');
+    const h = t === 'r' ? HGTS[Math.floor(Math.random()*2)] : HGTS[Math.floor(Math.random()*3)];
+    coins.push(mkCoin(sx, h, t));
+
+  } else if (r < 0.52) {
+    // 3 yellows in a row
+    const h = HGTS[Math.floor(Math.random()*3)];
+    for (let i = 0; i < 3; i++) coins.push(mkCoin(sx + i*40, h, 'y'));
+
+  } else if (r < 0.66) {
+    // Arc of yellows (simulates jump trajectory)
+    const arc = [0, -55, -95, -120, -95, -55, 0];
+    for (let i = 0; i < 7; i++) coins.push(mkCoin(sx + i*38, HGTS[0] + arc[i], 'y'));
+
+  } else if (r < 0.78) {
+    // Staircase of yellows
+    for (let i = 0; i < 4; i++) coins.push(mkCoin(sx + i*50, HGTS[i] ?? HGTS[3], 'y'));
+
+  } else if (r < 0.90) {
+    // Red trap: yellow, red, yellow
+    const h = HGTS[Math.floor(Math.random()*2)];
+    coins.push(mkCoin(sx,      h, 'y'));
+    coins.push(mkCoin(sx + 48, h, 'r'));
+    coins.push(mkCoin(sx + 96, h, 'y'));
+
+  } else {
+    // Rainbow bonus surrounded by yellows
+    const h = HGTS[1 + Math.floor(Math.random()*2)];
+    coins.push(mkCoin(sx - 45, h, 'y'));
+    coins.push(mkCoin(sx,      h, 'c'));
+    coins.push(mkCoin(sx + 45, h, 'y'));
+  }
+}
+
+function updateCoins() {
+  spawnTmr += SCROLL;
+  if (spawnTmr > 165 + Math.random() * 110) { spawnTmr = 0; spawnPattern(); }
+
+  for (let i = coins.length - 1; i >= 0; i--) {
+    const c = coins[i];
+
+    if (!c.alive) {
+      c.fade--;
+      if (c.fade <= 0) { coins.splice(i, 1); }
+      continue;
+    }
+
+    c.x   -= SCROLL;
+    c.rot += 0.065;
+    if (c.type === 'c') c.hue = (c.hue + 5) % 360;
+    if (c.x < -45) { coins.splice(i, 1); continue; }
+
+    // Collision with dog (dog hitbox: circle center = dog.x, dog.y-30, r≈22)
+    const dx = c.x - dog.x;
+    const dy = c.y - (dog.y - 30);
+    const cr = c.type === 'c' ? 17 : 14;
+    if (dx*dx + dy*dy < (cr + 22) * (cr + 22)) {
+      c.alive = false; c.fade = 36;
+      collectCoin(c);
+    }
+  }
+}
+
+function collectCoin(c) {
+  if (c.type === 'y') {
+    const pts = 5 * (mulActive ? 2 : 1);
+    score += pts;
+    sfxPling();
+    addParts(c.x, c.y, '#ffd700', 8);
+  } else if (c.type === 'r') {
+    score = Math.max(0, score - 10);
+    sfxWah();
+    addParts(c.x, c.y, '#ff4444', 8);
+  } else {
+    // Rainbow
+    mulActive = true; mulLeft = 10;
+    startSiren();
+    addParts(c.x, c.y, '#ffffff', 14);
+    document.getElementById('mulBanner').style.display = 'block';
+  }
+  updateHUD();
+}
+
+function drawCoin(c) {
+  if (!c.alive) {
+    // Float-up text
+    ctx.save();
+    ctx.globalAlpha = c.fade / 36;
+    ctx.font = 'bold 20px Arial';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const fy2 = c.y - (36 - c.fade) * 1.6;
+    if (c.type === 'y') {
+      ctx.fillStyle = '#ffd700';
+      ctx.fillText(mulActive ? '+10' : '+5', c.x, fy2);
+    } else if (c.type === 'r') {
+      ctx.fillStyle = '#ff5555';
+      ctx.fillText('-10', c.x, fy2);
+    } else {
+      ctx.fillStyle = '#fff';
+      ctx.fillText('2×!', c.x, fy2);
+    }
+    ctx.restore();
+    return;
+  }
+
+  ctx.save();
+  ctx.translate(c.x, c.y);
+  const r  = c.type === 'c' ? 15 : 13;
+  const sq = Math.abs(Math.cos(c.rot)) * 0.42 + 0.58; // rotation squish
+
+  if (c.type === 'c') {
+    // Rainbow coin
+    const grd = ctx.createRadialGradient(0, 0, r*0.25, 0, 0, r);
+    grd.addColorStop(0,   `hsl(${c.hue},100%,88%)`);
+    grd.addColorStop(0.5, `hsl(${(c.hue+120)%360},100%,62%)`);
+    grd.addColorStop(1,   `hsl(${(c.hue+240)%360},100%,42%)`);
+    ctx.fillStyle = grd;
+    ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI*2); ctx.fill();
+    // Outer glow ring
+    ctx.strokeStyle = `hsl(${(c.hue+60)%360},100%,75%)`;
+    ctx.lineWidth = 2.5; ctx.globalAlpha = 0.7;
+    ctx.beginPath(); ctx.arc(0, 0, r + 4, 0, Math.PI*2); ctx.stroke();
+    ctx.globalAlpha = 1;
+    // Sparkles
+    for (let i = 0; i < 4; i++) {
+      const a = i * Math.PI/2 + c.rot;
+      ctx.strokeStyle = 'white'; ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a)*(r+1), Math.sin(a)*(r+1));
+      ctx.lineTo(Math.cos(a)*(r+8), Math.sin(a)*(r+8));
+      ctx.stroke();
+    }
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.font = `bold ${r+3}px Arial`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('★', 0, 1);
+
+  } else {
+    const isY  = c.type === 'y';
+    const col  = isY ? '#ffd700' : '#ee2222';
+    const col2 = isY ? '#a07800' : '#880000';
+    // Rim
+    ctx.fillStyle = col2;
+    ctx.beginPath(); ctx.ellipse(0, 0, r*sq, r, 0, 0, Math.PI*2); ctx.fill();
+    // Face
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.ellipse(0, 0, r*sq*0.78, r*0.82, 0, 0, Math.PI*2); ctx.fill();
+    // Shine
+    ctx.fillStyle = 'rgba(255,255,255,0.38)';
+    ctx.beginPath(); ctx.ellipse(-r*0.18*sq, -r*0.22, r*0.18*sq, r*0.13, 0, 0, Math.PI*2); ctx.fill();
+    // Symbol
+    ctx.fillStyle = col2;
+    ctx.font = `bold ${r+2}px Arial`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(isY ? '¢' : '✕', 0, 1);
+  }
+  ctx.restore();
+}
+
+// ════════════════════════════════════════════════════════════
+//  PARTICLES
+// ════════════════════════════════════════════════════════════
+const parts = [];
+
+function addParts(x, y, col, n) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI*2;
+    const s = 1.5 + Math.random() * 4;
+    parts.push({ x, y, vx: Math.cos(a)*s, vy: Math.sin(a)*s - 2.5,
+                 col, life: 22 + Math.random()*18 });
+  }
+}
+
+function updateParts() {
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i];
+    p.x += p.vx; p.y += p.vy; p.vy += 0.28; p.life--;
+    if (p.life <= 0) parts.splice(i, 1);
+  }
+}
+
+function drawParts() {
+  for (const p of parts) {
+    ctx.save();
+    ctx.globalAlpha = p.life / 40;
+    ctx.fillStyle = p.col;
+    ctx.beginPath(); ctx.arc(p.x, p.y, 4.5, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+//  HUD
+// ════════════════════════════════════════════════════════════
+function updateHUD() {
+  document.getElementById('scoreEl').textContent = 'Punkte: ' + score;
+  const t  = Math.ceil(timeLeft);
+  const te = document.getElementById('timerEl');
+  te.textContent = 'Zeit: ' + t;
+  te.style.color = t <= 10 ? '#ff8888' : 'white';
+  if (mulActive && mulLeft > 0) {
+    document.getElementById('mulBanner').textContent =
+      '★ 2× PUNKTE! ' + Math.ceil(mulLeft) + 's ★';
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+//  LEADERBOARD
+// ════════════════════════════════════════════════════════════
+function getLB()       { return JSON.parse(localStorage.getItem('fluLB2') || '[]'); }
+function saveLB(lb)    { localStorage.setItem('fluLB2', JSON.stringify(lb)); }
+function addLB(n, pts) {
+  const lb = getLB();
+  lb.push({ name: n, score: pts });
+  lb.sort((a, b) => b.score - a.score);
+  const top = lb.slice(0, 5);
+  saveLB(top); return top;
+}
+
+const MED = ['🥇','🥈','🥉','4.','5.'];
+
+function renderLB(lb) {
+  if (!lb.length) return '<p style="color:#777;font-size:14px">Noch keine Einträge</p>';
+  return '<div class="lb-title">🏆 Bestenliste</div>' +
+    lb.map((e, i) =>
+      `<div class="lb-entry">${MED[i]} ${e.name}: ${e.score} Pkt</div>`
+    ).join('');
+}
+
+function showMenuLB() {
+  document.getElementById('lbArea').innerHTML = renderLB(getLB());
+}
+
+// ════════════════════════════════════════════════════════════
+//  GAME FLOW
+// ════════════════════════════════════════════════════════════
+function startGame() {
+  initAC();
+  score = 0; timeLeft = GAMEDUR;
+  mulActive = false; mulLeft = 0;
+  scrollOff = 0;
+  resetDog(); resetCoins(); parts.length = 0;
+
+  document.getElementById('overlay').style.display = 'none';
+  document.getElementById('mulBanner').style.display = 'none';
+  updateHUD();
+
+  state = 'playing';
+  stopSiren(); stopMusic(); startMusic();
+  lastTS = performance.now();
+  if (animID) cancelAnimationFrame(animID);
+  animID = requestAnimationFrame(gameLoop);
+}
+
+function endGame() {
+  state = 'gameover';
+  stopSiren(); stopMusic();
+  document.getElementById('mulBanner').style.display = 'none';
+
+  const ov = document.getElementById('overlay');
+  ov.style.display = 'flex';
+  const lb = getLB();
+  const qualifies = lb.length < 5 || score > (lb[lb.length-1]?.score ?? -1);
+
+  if (qualifies) {
+    ov.innerHTML = `
+      <h2>⏰ Zeit abgelaufen!</h2>
+      <h1 style="font-size:38px">Punkte: <span style="color:#ffd700">${score}</span></h1>
+      <div style="text-align:center">
+        <p style="color:#ccc;margin-bottom:10px">Dein Name für die Bestenliste:</p>
+        <input id="pname" type="text" placeholder="Dein Name" maxlength="15" value="Spieler">
+      </div>
+      <button id="saveBtn">🏆 Eintragen!</button>`;
+    const inp = document.getElementById('pname');
+    inp.focus(); inp.select();
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') doSave(); });
+    document.getElementById('saveBtn').onclick = doSave;
+  } else {
+    showFinal(lb);
+  }
+}
+
+function doSave() {
+  const name = (document.getElementById('pname')?.value || '').trim() || 'Spieler';
+  showFinal(addLB(name, score));
+}
+
+function showFinal(lb) {
+  const ov = document.getElementById('overlay');
+  ov.innerHTML = `
+    <h1>🐕 Flu's Abenteuer</h1>
+    <h2>Punkte: <span style="color:#ffd700">${score}</span></h2>
+    <div id="lbArea">${renderLB(lb)}</div>
+    <button id="restartBtn">🎮 Nochmal spielen!</button>`;
+  document.getElementById('restartBtn').onclick = startGame;
+}
+
+// ════════════════════════════════════════════════════════════
+//  MAIN LOOP
+// ════════════════════════════════════════════════════════════
+function gameLoop(ts) {
+  if (state !== 'playing') return;
+  const dt = Math.min((ts - lastTS) / 1000, 0.05);
+  lastTS = ts;
+
+  timeLeft -= dt;
+  if (timeLeft <= 0) { timeLeft = 0; updateHUD(); endGame(); return; }
+
+  if (mulActive) {
+    mulLeft -= dt;
+    if (mulLeft <= 0) {
+      mulActive = false; mulLeft = 0;
+      stopSiren();
+      document.getElementById('mulBanner').style.display = 'none';
+    }
+  }
+
+  scrollOff += SCROLL;
+  updateDog();
+  updateCoins();
+  updateParts();
+
+  // ── Draw ──────────────────────────────────────────────
+  drawBG();
+  drawParts();
+
+  // Coins behind dog
+  for (const c of coins) {
+    if (c.y > dog.y - 35) drawCoin(c);
+  }
+
+  // Multiplier aura
+  if (mulActive) {
+    ctx.save();
+    ctx.strokeStyle = `hsl(${Date.now()/7%360},100%,62%)`;
+    ctx.lineWidth = 3.5; ctx.globalAlpha = 0.75;
+    ctx.beginPath(); ctx.arc(dog.x, dog.y - 30, 42, 0, Math.PI*2); ctx.stroke();
+    ctx.restore();
+  }
+
+  drawDog();
+
+  // Coins in front of dog (air coins)
+  for (const c of coins) {
+    if (c.y <= dog.y - 35) drawCoin(c);
+  }
+
+  updateHUD();
+  animID = requestAnimationFrame(gameLoop);
+}
+
+// ════════════════════════════════════════════════════════════
+//  INPUT
+// ════════════════════════════════════════════════════════════
+document.addEventListener('keydown', e => {
+  if ((e.code === 'Space' || e.code === 'ArrowUp') && state === 'playing') {
+    e.preventDefault(); dogJump();
+  }
+});
+canvas.addEventListener('click', () => { if (state === 'playing') dogJump(); });
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault(); if (state === 'playing') dogJump();
+}, { passive: false });
+
+// ════════════════════════════════════════════════════════════
+//  UTIL
+// ════════════════════════════════════════════════════════════
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+// ════════════════════════════════════════════════════════════
+//  INIT
+// ════════════════════════════════════════════════════════════
+showMenuLB();
+document.getElementById('startBtn').onclick = startGame;
+
+// Draw initial frame for preview
+scrollOff = 0;
+drawBG();
+drawDog();
+
+</script>
+</body>
+</html>
